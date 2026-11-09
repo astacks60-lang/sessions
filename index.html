@@ -278,6 +278,22 @@ function autoName(ts) { const h = new Date(ts).getHours(); return (h < 5 ? 'Nigh
 function weekStart(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return +d; }
 function toast(msg) { document.querySelectorAll('.toast').forEach(t => t.remove()); const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2200); }
 
+/* ---------- routine packs: add routines without touching your history ---------- */
+function importPack(d) {
+  const rs = d.routines.filter(r => r && r.name && Array.isArray(r.exercises));
+  const same = rs.filter(r => S.routines.some(x => x.name === r.name)).length;
+  if (!confirm(`Add ${rs.length} routines${d.name ? ` from “${d.name}”` : ''}?` + (same ? ` ${same} with the same name will be updated.` : '') + ' Your workouts and other routines stay as they are.')) return;
+  const known = n => EXMAP[n.toLowerCase()] || S.custom.some(c => c.name.toLowerCase() === n.toLowerCase());
+  (d.custom || []).forEach(c => { if (c && c.name && !known(c.name)) S.custom.push({ id: uid(), name: c.name, group: GROUPS.includes(c.group) ? c.group : 'Other', equipment: EQUIPMENT.includes(c.equipment) ? c.equipment : 'Other', created: Date.now() }); });
+  rs.forEach(r => {
+    const nr = { id: uid(), name: r.name, notes: r.notes || '', exercises: r.exercises.map(e => ({ name: e.name, notes: e.notes || '', rest: e.rest ?? null, ss: e.ss || null,
+      sets: (e.sets || [{}]).map(s => ({ type: s.type || 'n', weight: '', reps: '' })) })) };
+    const i = S.routines.findIndex(x => x.name === r.name);
+    if (i >= 0) { nr.id = S.routines[i].id; S.routines[i] = nr; } else S.routines.push(nr);
+  });
+  reconcileCustom(); save(); render(); toast(`✓ ${rs.length} routines added`);
+}
+
 /* ---------- exercise database ---------- */
 let EXDB = [], EXMAP = {};
 try { EXDB = JSON.parse(document.getElementById('exdb-data').textContent) || []; } catch { EXDB = []; }
@@ -960,7 +976,7 @@ const A = {
   minimize: () => { showActive = false; render(); },
   startEmpty: () => beginWorkout(newWorkout()),
   startRoutine: d => { const r = S.routines.find(x => x.id === d.id); if (!r) return;
-    const w = newWorkout(r.name, r.exercises.map(e => ({ id: uid(), name: e.name, notes: '', rest: e.rest ?? null, ss: e.ss || null, sets: e.sets.map(s => ({ id: uid(), type: s.type || 'n', weight: '', reps: '', done: false })) })));
+    const w = newWorkout(r.name, r.exercises.map(e => ({ id: uid(), name: e.name, notes: e.notes || '', rest: e.rest ?? null, ss: e.ss || null, sets: e.sets.map(s => ({ id: uid(), type: s.type || 'n', weight: '', reps: '', done: false })) })));
     w.routineId = r.id; if (r.notes) w.notes = r.notes; beginWorkout(w); },
   repeatWorkout: d => { const o = S.workouts.find(x => x.id === d.id); if (!o) return;
     beginWorkout(newWorkout(o.name, o.exercises.map(e => ({ id: uid(), name: e.name, notes: '', rest: e.rest ?? null, ss: e.ss || null, sets: e.sets.map(s => ({ id: uid(), type: s.type || 'n', weight: '', reps: '', done: false })) })))); },
@@ -1072,7 +1088,9 @@ const A = {
   exportData: () => { const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' }); const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = `session-backup-${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); },
   importData: () => { const f = document.getElementById('importFile'); f.value = ''; f.onchange = () => { const file = f.files[0]; if (!file) return; const rd = new FileReader();
-      rd.onload = () => { try { const d = JSON.parse(rd.result); if (!d || d.v !== 2 || !Array.isArray(d.workouts)) throw 0;
+      rd.onload = () => { try { const d = JSON.parse(rd.result);
+          if (d && d.kind === 'session-routine-pack' && Array.isArray(d.routines)) { importPack(d); return; }
+          if (!d || d.v !== 2 || !Array.isArray(d.workouts)) throw 0;
           if (!confirm(`Import ${d.workouts.length} workouts, ${(d.routines || []).length} routines, ${(d.custom || []).length} custom exercises? This replaces what's on this device.`)) return;
           S = Object.assign(defaults(), d); S.settings = Object.assign(defaults().settings, d.settings || {}); reconcileCustom(); save(); render(); toast('✓ Backup imported'); } catch { toast('That file isn’t a Session backup'); } };
       rd.readAsText(file); }; f.click(); },
